@@ -7,7 +7,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def create_ssh_connection(host: str, username: str, password: str, port=22):
     connection = Connection(
-        host, user=username, port=port, connect_kwargs={"password": password}
+        host=host, user=username, port=port, connect_kwargs={"password": password}
     )
     connection.config.sudo.password = password
     _LOGGER.info("CONNECTED SSH")

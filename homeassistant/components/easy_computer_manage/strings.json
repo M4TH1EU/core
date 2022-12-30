@@ -8,7 +8,7 @@
           "password": "[%key:common::config_flow::data::password%]",
           "port": "[%key:common::config_flow::data::port%]",
           "name": "[%key:common::config_flow::data::name%]",
-          "mac": "[%key:common::config_flow::data::mac%]"
+          "mac": "[%key:common::config_flow::data::name%]"
         }
       }
     },

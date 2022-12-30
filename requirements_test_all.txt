@@ -515,6 +515,9 @@ epson-projector==0.5.0
 # homeassistant.components.faa_delays
 faadelays==0.0.7
 
+# homeassistant.components.easy_computer_manage
+fabric2==2.7.1
+
 # homeassistant.components.feedreader
 feedparser==6.0.10
 
@@ -1781,6 +1784,7 @@ vulcan-api==2.1.1
 # homeassistant.components.vultr
 vultr==0.1.2
 
+# homeassistant.components.easy_computer_manage
 # homeassistant.components.samsungtv
 # homeassistant.components.wake_on_lan
 wakeonlan==2.1.0
