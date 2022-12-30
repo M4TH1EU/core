@@ -102,6 +102,7 @@ FLOWS = {
         "dunehd",
         "dynalite",
         "eafm",
+        "easy_computer_manage",
         "ecobee",
         "econet",
         "ecowitt",

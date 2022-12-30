@@ -1198,6 +1198,12 @@
       "config_flow": true,
       "iot_class": "cloud_polling"
     },
+    "easy_computer_manage": {
+      "name": "Easy Dualboot Computer Manage",
+      "integration_type": "hub",
+      "config_flow": true,
+      "iot_class": "local_polling"
+    },
     "ebox": {
       "name": "EBox",
       "integration_type": "hub",
