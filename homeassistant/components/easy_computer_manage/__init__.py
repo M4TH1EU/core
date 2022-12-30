@@ -16,6 +16,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, SERVICE_SEND_MAGIC_PACKET
+from ...config_entries import ConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ WAKE_ON_LAN_SEND_MAGIC_PACKET_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the wake on LAN component."""
 
     @callback
@@ -62,5 +63,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         send_magic_packet,
         schema=WAKE_ON_LAN_SEND_MAGIC_PACKET_SCHEMA,
     )
+
+    hass.config_entries.async_setup_platforms(entry, ["switch"])
 
     return True

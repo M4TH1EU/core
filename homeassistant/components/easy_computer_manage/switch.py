@@ -30,12 +30,9 @@ from homeassistant.helpers import (
     entity_platform,
 )
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.script import Script
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-
 from . import utils
+from .const import SERVICE_RESTART_TO_WINDOWS_FROM_LINUX
 from ...config_entries import ConfigEntry
-from .const import DOMAIN, SERVICE_RESTART_TO_WINDOWS_FROM_LINUX
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +48,6 @@ PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_BROADCAST_PORT): cv.port,
         vol.Required(CONF_HOST): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_OFF_ACTION): cv.SCRIPT_SCHEMA,
         vol.Required(CONF_USERNAME, default="root"): cv.string,
         vol.Required(CONF_PASSWORD, default="root"): cv.string,
         vol.Optional(CONF_PORT, default=22): cv.string,
@@ -59,31 +55,27 @@ PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
 )
 
 
-def setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+async def async_setup_entry(
+        hass: HomeAssistant,
+        config: ConfigEntry,
+        async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up a computer switch."""
-    broadcast_address: str | None = config.get(CONF_BROADCAST_ADDRESS)
-    broadcast_port: int | None = config.get(CONF_BROADCAST_PORT)
-    host: str | None = config[CONF_HOST]
-    mac_address: str = config[CONF_MAC]
-    name: str = config[CONF_NAME]
-    off_action: list[Any] | None = config.get(CONF_OFF_ACTION)
-    username: str = config[CONF_USERNAME]
-    password: str = config[CONF_PASSWORD]
-    port: int = config[CONF_PORT]
+    broadcast_address: str | None = config.data.get(CONF_BROADCAST_ADDRESS)
+    broadcast_port: int | None = config.data.get(CONF_BROADCAST_PORT)
+    host: str = config.data.get(CONF_HOST)
+    mac_address: str = config.data.get(CONF_MAC)
+    name: str = config.data.get(CONF_NAME)
+    username: str = config.data.get(CONF_USERNAME)
+    password: str = config.data.get(CONF_PASSWORD)
+    port: int | None = config.data.get(CONF_PORT)
 
-    add_entities(
+    async_add_entities(
         [
             ComputerSwitch(
                 hass,
                 name,
                 host,
                 mac_address,
-                off_action,
                 broadcast_address,
                 broadcast_port,
                 username,
@@ -94,15 +86,10 @@ def setup_platform(
         host is not None,
     )
 
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-) -> None:
     platform = entity_platform.async_get_current_platform()
     platform.async_register_entity_service(
         SERVICE_RESTART_TO_WINDOWS_FROM_LINUX,
-        {vol.Required("test"): cv.boolean},
+        {},
         "restart_to_windows_from_linux",
     )
 
@@ -111,17 +98,16 @@ class ComputerSwitch(SwitchEntity):
     """Representation of a computer switch."""
 
     def __init__(
-        self,
-        hass: HomeAssistant,
-        name: str,
-        host: str | None,
-        mac_address: str,
-        off_action: list[Any] | None,
-        broadcast_address: str | None,
-        broadcast_port: int | None,
-        username: str,
-        password: str,
-        port: int | None,
+            self,
+            hass: HomeAssistant,
+            name: str,
+            host: str | None,
+            mac_address: str,
+            broadcast_address: str | None,
+            broadcast_port: int | None,
+            username: str,
+            password: str,
+            port: int | None,
     ) -> None:
         """Initialize the WOL switch."""
         self._attr_name = name
@@ -132,9 +118,6 @@ class ComputerSwitch(SwitchEntity):
         self._username = username
         self._password = password
         self._port = port
-        self._off_script = (
-            Script(hass, off_action, name, DOMAIN) if off_action else None
-        )
         self._state = False
         self._attr_assumed_state = host is None
         self._attr_should_poll = bool(not self._attr_assumed_state)

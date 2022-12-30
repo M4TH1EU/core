@@ -26,7 +26,6 @@ send_magic_packet:
 restart_to_windows_from_linux:
   name: Reboot to Windows from Linux
   description: Reboot the computer to Windows when running Linux using Grub.
-  fields:
-    entity_id:
-      description: Name of the entity.
-      example: "switch.my_computer"
+  target:
+    device:
+      integration: easy_computer_manage

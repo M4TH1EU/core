@@ -1,14 +1,22 @@
 import logging
 
+import fabric2
 from fabric2 import Connection
 
 _LOGGER = logging.getLogger(__name__)
+# _LOGGER.setLevel(logging.DEBUG)
 
 
 def create_ssh_connection(host: str, username: str, password: str, port=22):
+    conf = fabric2.Config()
+    conf.run.hide = True
+    conf.run.warn = True
+    conf.warn = True
     connection = Connection(
-        host=host, user=username, port=port, connect_kwargs={"password": password}
+        host=host, user=username, port=port, connect_timeout=3, connect_kwargs={"password": password},
+        config=conf
     )
+
     connection.config.sudo.password = password
     _LOGGER.info("CONNECTED SSH")
 
@@ -113,37 +121,43 @@ def sleep_system(connection: Connection, is_unix=None):
                 _LOGGER.error("Cannot restart system, all methods failed.")
 
 
-def get_unix_system_grub_os_list(connection: Connection):
-    result = connection.sudo("cat /boot/grub/grub.cfg | grep menuentry")
-    if result.return_code == 0:
-        return result.stdout.splitlines()
-    else:
-        result = connection.sudo("cat /boot/grub2/grub.cfg | grep menuentry")
-        if result.return_code == 0:
-            return result.stdout.splitlines()
+def get_windows_entry_in_grub(connection: Connection):
+    result = connection.sudo("awk -F \"'\" '/windows/ {print $2}' /boot/grub/grub.cfg")
 
-        _LOGGER.error("Cannot get grub os list")
+    if result.return_code == 0:
+        _LOGGER.debug("Found Windows entry in grub : " + result.stdout.strip())
+    else:
+        result = connection.sudo("awk -F \"'\" '/windows/ {print $2}' /boot/grub2/grub.cfg")
+        if result.return_code == 0:
+            _LOGGER.debug("Found windows entry in grub2 : " + result.stdout.strip())
+        else:
+            _LOGGER.error("Cannot find windows entry in grub")
+            return None
+
+    # Check if the entry is valid
+    if result.stdout.strip() != "":
+        return result.stdout.strip()
+    else:
+        _LOGGER.error("Cannot find windows entry in grub")
+        return None
 
 
 def restart_to_windows_from_linux(connection: Connection):
     if is_unix_system(connection):
-        # sudo grub-reboot "$(grep -i windows /boot/grub/grub.cfg|cut -d"'" -f2)" && sudo reboot
-        result = connection.sudo(
-            'grub-reboot "$(grep -i windows /boot/grub/grub.cfg|cut -d"\'" -f2)"'
-        )
+        windows_entry = get_windows_entry_in_grub(connection)
+        if windows_entry is not None:
+            # First method using grub-reboot command
+            result = connection.sudo(f"grub-reboot \"{windows_entry}\"")
 
-        # we try with grub2 if grub command failed
-        if result.return_code != 0:
-            result = connection.sudo(
-                'grub2-reboot "$(grep -i windows /boot/grub/grub.cfg|cut -d"\'" -f2)"'
-            )
+            if result.return_code != 0:
+                # Try a second method using grub2-reboot command
+                result = connection.sudo(f"grub2-reboot \"{windows_entry}\"")
 
-        # grub reboot success, we reboot the system
-        if result.return_code == 0:
-            restart_system(connection)
-        else:
-            _LOGGER.error(
-                "Cannot restart system to windows from linux, all methods failed."
-            )
+            # Restart system if successful grub(2)-reboot command
+            if result.return_code == 0:
+                _LOGGER.info("Rebooting to Windows")
+                restart_system(connection)
+            else:
+                _LOGGER.error("Cannot restart system to windows from linux, all methods failed.")
     else:
         _LOGGER.error("Cannot restart to Windows from Linux, system is not Linux/Unix")
