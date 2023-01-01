@@ -8,6 +8,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def create_ssh_connection(host: str, username: str, password: str, port=22):
+    """Create an SSH connection to a host using a username and password specified in the config flow."""
     conf = fabric2.Config()
     conf.run.hide = True
     conf.run.warn = True
@@ -26,6 +27,7 @@ def create_ssh_connection(host: str, username: str, password: str, port=22):
 
 
 def test_connection(connection: Connection):
+    """Test the connection to the host by running a simple command."""
     try:
         connection.run('ls')
         return True
@@ -34,10 +36,12 @@ def test_connection(connection: Connection):
 
 
 def is_unix_system(connection: Connection):
+    """Return a boolean based on get_operating_system result."""
     return get_operating_system(connection) == "Linux/Unix"
 
 
 def get_operating_system_version(connection: Connection, is_unix=None):
+    """Return the running operating system name and version."""
     if is_unix is None:
         is_unix = is_unix_system(connection)
 
@@ -52,6 +56,7 @@ def get_operating_system_version(connection: Connection, is_unix=None):
 
 
 def get_operating_system(connection: Connection):
+    """Return the running operating system type."""
     result = connection.run("uname")
     if result.return_code == 0:
         return "Linux/Unix"
@@ -60,6 +65,8 @@ def get_operating_system(connection: Connection):
 
 
 def shutdown_system(connection: Connection, is_unix=None):
+    """Shutdown the system."""
+
     if is_unix is None:
         is_unix = is_unix_system(connection)
 
@@ -74,6 +81,7 @@ def shutdown_system(connection: Connection, is_unix=None):
                 result = connection.run("sudo systemctl poweroff")
                 if result.return_code != 0:
                     _LOGGER.error("Cannot restart system, all methods failed.")
+
     else:
         # First method using shutdown command
         result = connection.run("shutdown /s /t 0")
@@ -83,8 +91,12 @@ def shutdown_system(connection: Connection, is_unix=None):
             if result.return_code != 0:
                 _LOGGER.error("Cannot restart system, all methods failed.")
 
+    connection.close()
+
 
 def restart_system(connection: Connection, is_unix=None):
+    """Restart the system."""
+
     if is_unix is None:
         is_unix = is_unix_system(connection)
 
@@ -110,6 +122,8 @@ def restart_system(connection: Connection, is_unix=None):
 
 
 def sleep_system(connection: Connection, is_unix=None):
+    """Put the system to sleep."""
+
     if is_unix is None:
         is_unix = is_unix_system(connection)
 
@@ -132,6 +146,10 @@ def sleep_system(connection: Connection, is_unix=None):
 
 
 def get_windows_entry_in_grub(connection: Connection):
+    """
+    Grabs the Windows entry name in GRUB.
+    Used later with grub-reboot to specify which entry to boot.
+    """
     result = connection.run("sudo awk -F \"'\" '/windows/ {print $2}' /boot/grub/grub.cfg")
 
     if result.return_code == 0:
@@ -153,6 +171,8 @@ def get_windows_entry_in_grub(connection: Connection):
 
 
 def restart_to_windows_from_linux(connection: Connection):
+    """Restart a running Linux system to Windows."""
+
     if is_unix_system(connection):
         windows_entry = get_windows_entry_in_grub(connection)
         if windows_entry is not None:

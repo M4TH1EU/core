@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess as sp
+import threading
+import time
 from typing import Any
 
 import voluptuous as vol
 import wakeonlan
+from paramiko.ssh_exception import NoValidConnectionsError
 
 from homeassistant.components.switch import (
     PLATFORM_SCHEMA as PARENT_PLATFORM_SCHEMA,
@@ -31,7 +35,8 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import utils
-from .const import SERVICE_RESTART_TO_WINDOWS_FROM_LINUX, SERVICE_PUT_COMPUTER_TO_SLEEP
+from .const import SERVICE_RESTART_TO_WINDOWS_FROM_LINUX, SERVICE_PUT_COMPUTER_TO_SLEEP, \
+    SERVICE_START_COMPUTER_TO_WINDOWS
 from homeassistant.config_entries import ConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,6 +52,7 @@ PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_BROADCAST_ADDRESS): cv.string,
         vol.Optional(CONF_BROADCAST_PORT): cv.port,
         vol.Required(CONF_HOST): cv.string,
+        vol.Required("dualboot", default=False): cv.boolean,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Required(CONF_USERNAME, default="root"): cv.string,
         vol.Required(CONF_PASSWORD, default="root"): cv.string,
@@ -60,11 +66,12 @@ async def async_setup_entry(
         config: ConfigEntry,
         async_add_entities: AddEntitiesCallback,
 ) -> None:
+    mac_address: str = config.data.get(CONF_MAC)
     broadcast_address: str | None = config.data.get(CONF_BROADCAST_ADDRESS)
     broadcast_port: int | None = config.data.get(CONF_BROADCAST_PORT)
     host: str = config.data.get(CONF_HOST)
-    mac_address: str = config.data.get(CONF_MAC)
     name: str = config.data.get(CONF_NAME)
+    dualboot: bool = config.data.get("dualboot")
     username: str = config.data.get(CONF_USERNAME)
     password: str = config.data.get(CONF_PASSWORD)
     port: int | None = config.data.get(CONF_PORT)
@@ -78,6 +85,7 @@ async def async_setup_entry(
                 mac_address,
                 broadcast_address,
                 broadcast_port,
+                dualboot,
                 username,
                 password,
                 port,
@@ -97,6 +105,11 @@ async def async_setup_entry(
         {},
         SERVICE_PUT_COMPUTER_TO_SLEEP,
     )
+    platform.async_register_entity_service(
+        SERVICE_START_COMPUTER_TO_WINDOWS,
+        {},
+        SERVICE_START_COMPUTER_TO_WINDOWS,
+    )
 
 
 class ComputerSwitch(SwitchEntity):
@@ -110,6 +123,7 @@ class ComputerSwitch(SwitchEntity):
             mac_address: str,
             broadcast_address: str | None,
             broadcast_port: int | None,
+            dualboot: bool | False,
             username: str,
             password: str,
             port: int | None,
@@ -120,6 +134,7 @@ class ComputerSwitch(SwitchEntity):
         self._mac_address = mac_address
         self._broadcast_address = broadcast_address
         self._broadcast_port = broadcast_port
+        self._dualboot = dualboot
         self._username = username
         self._password = password
         self._port = port
@@ -132,11 +147,11 @@ class ComputerSwitch(SwitchEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return true if switch is on."""
+        """Return true if the computer switch is on."""
         return self._state
 
     def turn_on(self, **kwargs: Any) -> None:
-        """Turn the device on."""
+        """Turn the computer on using wake on lan."""
         service_kwargs: dict[str, Any] = {}
         if self._broadcast_address is not None:
             service_kwargs["ip_address"] = self._broadcast_address
@@ -157,6 +172,7 @@ class ComputerSwitch(SwitchEntity):
             self.async_write_ha_state()
 
     def turn_off(self, **kwargs: Any) -> None:
+        """Turn the computer off using appropriate shutdown command based on running OS and/or distro."""
         utils.shutdown_system(self._connection)
 
         if self._attr_assumed_state:
@@ -164,13 +180,36 @@ class ComputerSwitch(SwitchEntity):
             self.async_write_ha_state()
 
     def restart_to_windows_from_linux(self) -> None:
-        utils.restart_to_windows_from_linux(self._connection)
+        """Restart the computer to Windows from a running Linux by setting grub-reboot and restarting."""
+
+        if self._dualboot:
+            utils.restart_to_windows_from_linux(self._connection)
+        else:
+            _LOGGER.error("This computer is not running a dualboot system.")
 
     def put_computer_to_sleep(self) -> None:
+        """Put the computer to sleep using appropriate sleep command based on running OS and/or distro."""
         utils.sleep_system(self._connection)
 
+    def start_computer_to_windows(self) -> None:
+        """Start the computer to Linux, wait for it to boot, and then set grub-reboot and restart."""
+        self.turn_on()
+
+        if self._dualboot:
+            # Wait for the computer to boot using a dedicated thread to avoid blocking the main thread
+            thread = threading.Thread(target=self.reboot_computer_to_windows_when_on, args=(self,))
+            thread.start()
+        else:
+            _LOGGER.error("This computer is not running a dualboot system.")
+
+    async def reboot_computer_to_windows_when_on(self, null) -> None:
+        """Method to be run in a separate thread to wait for the computer to boot and then reboot to Windows."""
+        while not self.is_on:
+            await asyncio.sleep(5)
+        utils.restart_to_windows_from_linux(self._connection)
+
     def update(self) -> None:
-        """Check if device is on and update the state. Only called if assumed state is false."""
+        """Ping the computer to see if it is online and update the state."""
         ping_cmd = [
             "ping",
             "-c",
@@ -182,7 +221,7 @@ class ComputerSwitch(SwitchEntity):
         status = sp.call(ping_cmd, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
         self._state = not bool(status)
 
-        # Check if computer is on
+        # Update the state attributes and the connection only if the computer is on
         if self._state:
             if not utils.test_connection(self._connection):
                 _LOGGER.info("RENEWING SSH CONNECTION")
@@ -191,7 +230,13 @@ class ComputerSwitch(SwitchEntity):
                     self._connection.close()
 
                 self._connection = utils.create_ssh_connection(self._host, self._username, self._password)
-                self._connection.open()
+
+                try:
+                    self._connection.open()
+                except NoValidConnectionsError as error:
+                    _LOGGER.error("Could not connect to %s: %s", self._host, error)
+                    self._state = False
+                    return
 
             self._attr_extra_state_attributes = {
                 "operating_system": utils.get_operating_system(self._connection),
