@@ -29,3 +29,9 @@ restart_to_windows_from_linux:
   target:
     device:
       integration: easy_computer_manage
+put_computer_to_sleep:
+  name: Put computer to sleep
+  description: Put the computer to sleep.
+  target:
+    device:
+      integration: easy_computer_manage

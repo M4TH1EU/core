@@ -31,8 +31,8 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import utils
-from .const import SERVICE_RESTART_TO_WINDOWS_FROM_LINUX
-from ...config_entries import ConfigEntry
+from .const import SERVICE_RESTART_TO_WINDOWS_FROM_LINUX, SERVICE_PUT_COMPUTER_TO_SLEEP
+from homeassistant.config_entries import ConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,7 +90,12 @@ async def async_setup_entry(
     platform.async_register_entity_service(
         SERVICE_RESTART_TO_WINDOWS_FROM_LINUX,
         {},
-        "restart_to_windows_from_linux",
+        SERVICE_RESTART_TO_WINDOWS_FROM_LINUX,
+    )
+    platform.async_register_entity_service(
+        SERVICE_PUT_COMPUTER_TO_SLEEP,
+        {},
+        SERVICE_PUT_COMPUTER_TO_SLEEP,
     )
 
 
@@ -123,10 +128,7 @@ class ComputerSwitch(SwitchEntity):
         self._attr_should_poll = bool(not self._attr_assumed_state)
         self._attr_unique_id = dr.format_mac(mac_address)
         self._attr_extra_state_attributes = {}
-
-        self._connection = utils.create_ssh_connection(
-            self._host, self._username, self._password
-        )
+        self._connection = utils.create_ssh_connection(self._host, self._username, self._password)
 
     @property
     def is_on(self) -> bool:
@@ -155,7 +157,7 @@ class ComputerSwitch(SwitchEntity):
             self.async_write_ha_state()
 
     def turn_off(self, **kwargs: Any) -> None:
-        utils.sleep_system(self._connection)
+        utils.shutdown_system(self._connection)
 
         if self._attr_assumed_state:
             self._state = False
@@ -163,6 +165,9 @@ class ComputerSwitch(SwitchEntity):
 
     def restart_to_windows_from_linux(self) -> None:
         utils.restart_to_windows_from_linux(self._connection)
+
+    def put_computer_to_sleep(self) -> None:
+        utils.sleep_system(self._connection)
 
     def update(self) -> None:
         """Check if device is on and update the state. Only called if assumed state is false."""
@@ -177,9 +182,20 @@ class ComputerSwitch(SwitchEntity):
         status = sp.call(ping_cmd, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
         self._state = not bool(status)
 
-        self._attr_extra_state_attributes = {
-            "operating_system": utils.get_operating_system(self._connection),
-            "operating_system_version": utils.get_operating_system_version(
-                self._connection
-            ),
-        }
+        # Check if computer is on
+        if self._state:
+            if not utils.test_connection(self._connection):
+                _LOGGER.info("RENEWING SSH CONNECTION")
+
+                if self._connection is not None:
+                    self._connection.close()
+
+                self._connection = utils.create_ssh_connection(self._host, self._username, self._password)
+                self._connection.open()
+
+            self._attr_extra_state_attributes = {
+                "operating_system": utils.get_operating_system(self._connection),
+                "operating_system_version": utils.get_operating_system_version(
+                    self._connection
+                ),
+            }

@@ -8,9 +8,9 @@ import voluptuous as vol
 from paramiko.ssh_exception import AuthenticationException
 
 from homeassistant import config_entries, exceptions
+from homeassistant.core import HomeAssistant
 from . import utils
 from .const import DOMAIN
-from ...core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
