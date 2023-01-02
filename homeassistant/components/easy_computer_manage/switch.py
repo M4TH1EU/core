@@ -11,7 +11,7 @@ from typing import Any
 
 import voluptuous as vol
 import wakeonlan
-from paramiko.ssh_exception import NoValidConnectionsError
+from paramiko.ssh_exception import NoValidConnectionsError, SSHException, AuthenticationException
 
 from homeassistant.components.switch import (
     PLATFORM_SCHEMA as PARENT_PLATFORM_SCHEMA,
@@ -129,6 +129,8 @@ class ComputerSwitch(SwitchEntity):
             port: int | None,
     ) -> None:
         """Initialize the WOL switch."""
+
+        self._hass = hass
         self._attr_name = name
         self._host = host
         self._mac_address = mac_address
@@ -197,16 +199,18 @@ class ComputerSwitch(SwitchEntity):
 
         if self._dualboot:
             # Wait for the computer to boot using a dedicated thread to avoid blocking the main thread
-            thread = threading.Thread(target=self.reboot_computer_to_windows_when_on, args=(self,))
-            thread.start()
+
+            self._hass.loop.create_task(self.reboot_computer_to_windows_when_on())
+
         else:
             _LOGGER.error("This computer is not running a dualboot system.")
 
-    async def reboot_computer_to_windows_when_on(self, null) -> None:
+    async def reboot_computer_to_windows_when_on(self) -> None:
         """Method to be run in a separate thread to wait for the computer to boot and then reboot to Windows."""
         while not self.is_on:
-            await asyncio.sleep(5)
-        utils.restart_to_windows_from_linux(self._connection)
+            await asyncio.sleep(3)
+
+        await utils.restart_to_windows_from_linux(self._connection)
 
     def update(self) -> None:
         """Ping the computer to see if it is online and update the state."""
@@ -233,8 +237,12 @@ class ComputerSwitch(SwitchEntity):
 
                 try:
                     self._connection.open()
-                except NoValidConnectionsError as error:
+                except NoValidConnectionsError and SSHException as error:
                     _LOGGER.error("Could not connect to %s: %s", self._host, error)
+                    self._state = False
+                    return
+                except AuthenticationException as error:
+                    _LOGGER.error("Could not authenticate to %s: %s", self._host, error)
                     self._state = False
                     return
 
