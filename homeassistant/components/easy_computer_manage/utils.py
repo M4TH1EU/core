@@ -51,7 +51,7 @@ def get_operating_system_version(connection: Connection, is_unix=None):
         ).stdout
     else:
         return connection.run(
-            'for /f "tokens=2" %i in (\'systeminfo ^| find "OS Name"\') do @echo %i'
+            'for /f "tokens=1 delims=|" %i in (\'wmic os get Name ^| findstr /B /C:"Microsoft"\') do @echo %i'
         ).stdout
 
 
